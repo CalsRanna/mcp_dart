@@ -58,17 +58,22 @@ class McpStdioClient implements McpClient {
       },
     );
 
-    final initResponse = await sendMessage(initMessage);
-    Logger.root.info('初始化请求响应: $initResponse');
+    try {
+      final initResponse = await sendMessage(initMessage);
+      print('初始化请求响应: $initResponse');
 
-    // 第二步：发送初始化完成通知（不需要等待响应）
-    final notifyMessage = McpJsonRpcMessage(
-      method: 'notifications/initialized', // 移除 notifications/ 前缀
-      params: {}, // 添加空的参数对象
-    );
+      // 第二步：发送初始化完成通知（不需要等待响应）
+      final notifyMessage = McpJsonRpcMessage(
+        method: 'notifications/initialized', // 移除 notifications/ 前缀
+        params: {}, // 添加空的参数对象
+      );
 
-    await write(utf8.encode(jsonEncode(notifyMessage.toJson())));
-    return initResponse;
+      await write(utf8.encode(jsonEncode(notifyMessage.toJson())));
+      return initResponse;
+    } catch (e) {
+      print(e);
+      rethrow;
+    }
   }
 
   @override
@@ -132,10 +137,10 @@ class McpStdioClient implements McpClient {
         final String jsonStr = utf8.decode(data);
         process.stdin.writeln(utf8.decode(data));
         await process.stdin.flush();
-        Logger.root.info('写入数据: $jsonStr');
+        print('写入数据: $jsonStr');
       });
     } catch (e) {
-      Logger.root.severe('写入数据失败: $e');
+      print('写入数据失败: $e');
       rethrow;
     }
   }
@@ -149,9 +154,7 @@ class McpStdioClient implements McpClient {
 
   Future<void> _setupProcess() async {
     try {
-      Logger.root.info(
-        '启动进程: ${serverConfig.command} ${serverConfig.args.join(" ")}',
-      );
+      print('启动进程: ${serverConfig.command} ${serverConfig.args.join(" ")}');
 
       _processStateController.add(const ProcessState.starting());
 
@@ -161,7 +164,7 @@ class McpStdioClient implements McpClient {
         serverConfig.env,
       );
 
-      Logger.root.info('进程启动状态：PID=${process.pid}');
+      print('进程启动状态：PID=${process.pid}');
 
       // 使用 utf8 解码器
       final stdoutStream = process.stdout
@@ -170,6 +173,7 @@ class McpStdioClient implements McpClient {
 
       stdoutStream.listen(
         (String line) {
+          print(line);
           try {
             for (final callback in stdOutCallback) {
               callback(line);
@@ -178,17 +182,17 @@ class McpStdioClient implements McpClient {
             final message = McpJsonRpcMessage.fromJson(data);
             _handleMessage(message);
           } catch (e, stack) {
-            Logger.root.severe('解析服务器输出失败: $e\n$stack');
+            print('解析服务器输出失败: $e\n$stack');
           }
         },
         onError: (error) {
-          Logger.root.severe('stdout 错误: $error');
+          print('stdout 错误: $error');
           for (final callback in stdErrCallback) {
             callback(error.toString());
           }
         },
         onDone: () {
-          Logger.root.info('stdout 流已关闭');
+          print('stdout 流已关闭');
         },
       );
 
@@ -202,7 +206,7 @@ class McpStdioClient implements McpClient {
               }
             },
             onError: (error) {
-              Logger.root.severe('stderr 错误: $error');
+              print('stderr 错误: $error');
               for (final callback in stdErrCallback) {
                 callback(error.toString());
               }
@@ -211,13 +215,13 @@ class McpStdioClient implements McpClient {
 
       // 监听进程退出
       process.exitCode.then((code) {
-        Logger.root.info('进程退出，退出码: $code');
+        print('进程退出，退出码: $code');
         _processStateController.add(ProcessState.exited(code));
       });
 
       _processStateController.add(const ProcessState.running());
     } catch (e, stack) {
-      Logger.root.severe('启动进程失败: $e\n$stack');
+      print('启动进程失败: $e\n$stack');
       _processStateController.add(ProcessState.error(e, stack));
       rethrow;
     }

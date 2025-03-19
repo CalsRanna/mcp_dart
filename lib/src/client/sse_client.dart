@@ -34,7 +34,7 @@ class McpSseClient implements McpClient {
   @override
   Future<void> initialize() async {
     try {
-      Logger.root.info('开始 SSE 连接: ${serverConfig.command}');
+      print('开始 SSE 连接: ${serverConfig.command}');
       _processStateController.add(const ProcessState.starting());
 
       final client = HttpClient();
@@ -66,7 +66,7 @@ class McpSseClient implements McpClient {
                       ).replace(path: '').toString();
                   _messageEndpoint =
                       data.startsWith("http") ? data : baseUrl + data;
-                  Logger.root.info('收到消息端点: $_messageEndpoint');
+                  print('收到消息端点: $_messageEndpoint');
                   _processStateController.add(const ProcessState.running());
                 } else {
                   try {
@@ -74,24 +74,24 @@ class McpSseClient implements McpClient {
                     final message = McpJsonRpcMessage.fromJson(jsonData);
                     _handleMessage(message);
                   } catch (e, stack) {
-                    Logger.root.severe('解析服务器消息失败: $e\n$stack');
+                    print('解析服务器消息失败: $e\n$stack');
                   }
                 }
               }
             },
             onError: (error) {
-              Logger.root.severe('SSE 连接错误: $error');
+              print('SSE 连接错误: $error');
               _processStateController.add(
                 ProcessState.error(error, StackTrace.current),
               );
             },
             onDone: () {
-              Logger.root.info('SSE 连接已关闭');
+              print('SSE 连接已关闭');
               _processStateController.add(const ProcessState.exited(0));
             },
           );
     } catch (e, stack) {
-      Logger.root.severe('SSE 连接失败: $e\n$stack');
+      print('SSE 连接失败: $e\n$stack');
       _processStateController.add(ProcessState.error(e, stack));
       rethrow;
     }
@@ -112,10 +112,10 @@ class McpSseClient implements McpClient {
       },
     );
 
-    Logger.root.info('初始化请求: ${jsonEncode(initMessage.toString())}');
+    print('初始化请求: ${jsonEncode(initMessage.toString())}');
 
     final initResponse = await sendMessage(initMessage);
-    Logger.root.info('初始化请求响应: $initResponse');
+    print('初始化请求响应: $initResponse');
 
     final notifyMessage = McpJsonRpcMessage(method: 'initialized', params: {});
 
@@ -198,7 +198,7 @@ class McpSseClient implements McpClient {
           options: Options(headers: {'Content-Type': 'application/json'}),
         );
       } catch (e) {
-        Logger.root.severe('发送 HTTP POST 失败: $e');
+        print('发送 HTTP POST 失败: $e');
         rethrow;
       }
     });

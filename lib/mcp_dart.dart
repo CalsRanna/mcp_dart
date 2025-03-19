@@ -14,7 +14,6 @@ Future<McpClient> initializeMcpServer(
 ) async {
   // 获取服务器配置
   final serverConfig = McpServerConfig.fromJson(mcpServerConfig);
-
   // 根据配置创建相应的客户端
   McpClient mcpClient;
   if (serverConfig.command.startsWith('http')) {
@@ -22,21 +21,17 @@ Future<McpClient> initializeMcpServer(
   } else {
     mcpClient = McpStdioClient(serverConfig: serverConfig);
   }
-
-  // 初始化客户端
-  await mcpClient.initialize();
-
-  // 发送初始化消息
   try {
-    // 等待10秒
-    await Future.delayed(const Duration(seconds: 10));
+    // 初始化客户端
+    await mcpClient.initialize();
+    // 发送初始化消息
     final initResponse = await mcpClient.sendInitialize();
-    Logger.root.info('初始化响应: $initResponse');
+    print('初始化响应: $initResponse');
 
     final toolListResponse = await mcpClient.sendToolList();
-    Logger.root.info('工具列表响应: $toolListResponse');
+    print('工具列表响应: $toolListResponse');
   } catch (e, stackTrace) {
-    Logger.root.severe('初始化消息发送失败: $e\n堆栈跟踪:\n$stackTrace');
+    print('初始化消息发送失败: $e\n堆栈跟踪:\n$stackTrace');
     rethrow;
   }
 
