@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:mcp_dart/src/message.dart';
-import 'package:mcp_dart/src/server/server_config.dart';
+import 'package:mcp_dart/src/server/server_option.dart';
 import 'package:mcp_dart/src/util/logger_util.dart';
 import 'package:process/process.dart';
 
@@ -25,9 +25,9 @@ class ProcessUtil {
     stream.listen(onData, onError: (error) => LoggerUtil.logger.e(error));
   }
 
-  static Future<Process> start(McpServerConfig config) async {
-    var command = [config.command, ...config.args];
-    return LocalProcessManager().start(command, environment: config.env);
+  static Future<Process> start(McpServerOption option) async {
+    var command = [option.command, ...option.args];
+    return LocalProcessManager().start(command, environment: option.env);
   }
 
   static Future<void> writeNotification(

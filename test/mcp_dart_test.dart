@@ -1,15 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mcp_dart/src/client/stdio_client.dart';
-import 'package:mcp_dart/src/server/server_config.dart';
+import 'package:mcp_dart/src/server/server_option.dart';
 
 void main() {
   test('mcp server fetch', () async {
-    var server = {
+    var json = {
       "command": "uvx",
       "args": ["mcp-server-fetch"],
     };
-    final config = McpServerConfig.fromJson(server);
-    var client = McpStdioClient(serverConfig: config);
+    final option = McpServerOption.fromJson(json);
+    var client = McpStdioClient(option: option);
     await client.initialize();
     var tools = await client.listTools();
     expect(tools.isNotEmpty, true);
@@ -28,12 +28,12 @@ void main() {
   });
 
   test('mcp server time', () async {
-    var server = {
+    var json = {
       'command': 'uvx',
       'args': ['mcp-server-time', '--local-timezone=Asia/Shanghai'],
     };
-    final config = McpServerConfig.fromJson(server);
-    var client = McpStdioClient(serverConfig: config);
+    final option = McpServerOption.fromJson(json);
+    var client = McpStdioClient(option: option);
     await client.initialize();
     var tools = await client.listTools();
     expect(tools.isNotEmpty, true);

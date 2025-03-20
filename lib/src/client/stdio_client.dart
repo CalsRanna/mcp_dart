@@ -4,17 +4,17 @@ import 'dart:io';
 
 import 'package:mcp_dart/src/message.dart';
 import 'package:mcp_dart/src/method.dart';
-import 'package:mcp_dart/src/server/server_config.dart';
+import 'package:mcp_dart/src/server/server_option.dart';
 import 'package:mcp_dart/src/tool.dart';
 import 'package:mcp_dart/src/util/logger_util.dart';
 import 'package:mcp_dart/src/util/process_util.dart';
 
 class McpStdioClient {
-  final McpServerConfig serverConfig;
+  final McpServerOption option;
   late final Process _process;
   final _requests = <String, Completer<McpJsonRpcResponse>>{};
 
-  McpStdioClient({required this.serverConfig});
+  McpStdioClient({required this.option});
 
   Future<McpJsonRpcResponse> callTool(
     String tool, {
@@ -101,8 +101,8 @@ class McpStdioClient {
 
   Future<void> _setup() async {
     try {
-      _process = await ProcessUtil.start(serverConfig);
-      var command = [serverConfig.command, ...serverConfig.args];
+      _process = await ProcessUtil.start(option);
+      var command = [option.command, ...option.args];
       LoggerUtil.logger.d('Start: ${command.join(" ")}');
       ProcessUtil.listenStdout(_process, (text) {
         try {

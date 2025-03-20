@@ -4,21 +4,18 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:mcp_dart/src/message.dart';
-import 'package:mcp_dart/src/server/server_config.dart';
+import 'package:mcp_dart/src/server/server_option.dart';
 import 'package:mcp_dart/src/util/logger_util.dart';
 import 'package:synchronized/synchronized.dart';
 
 class McpSseClient {
-  final McpServerConfig _serverConfig;
+  final McpServerOption option;
   final _pendingRequests = <String, Completer<McpJsonRpcResponse>>{};
   StreamSubscription? _sseSubscription;
 
   final _writeLock = Lock();
   String? _messageEndpoint;
-  McpSseClient({required McpServerConfig serverConfig})
-    : _serverConfig = serverConfig;
-
-  McpServerConfig get serverConfig => _serverConfig;
+  McpSseClient({required this.option});
 
   Future<void> dispose() async {
     await _sseSubscription?.cancel();
@@ -26,10 +23,10 @@ class McpSseClient {
 
   Future<void> initialize() async {
     try {
-      LoggerUtil.logger.d('开始 SSE 连接: ${serverConfig.command}');
+      LoggerUtil.logger.d('开始 SSE 连接: ${option.command}');
 
       final client = HttpClient();
-      final request = await client.getUrl(Uri.parse(serverConfig.command));
+      final request = await client.getUrl(Uri.parse(option.command));
       request.headers.set('Accept', 'text/event-stream');
       request.headers.set('Cache-Control', 'no-cache');
       request.headers.set('Connection', 'keep-alive');
@@ -52,9 +49,7 @@ class McpSseClient {
                 final data = line.substring(6);
                 if (_messageEndpoint == null) {
                   final baseUrl =
-                      Uri.parse(
-                        serverConfig.command,
-                      ).replace(path: '').toString();
+                      Uri.parse(option.command).replace(path: '').toString();
                   _messageEndpoint =
                       data.startsWith("http") ? data : baseUrl + data;
                   LoggerUtil.logger.d('收到消息端点: $_messageEndpoint');
