@@ -35,11 +35,11 @@ void main() async {
   
   // 发送初始化请求
   final response = await client.sendInitialize();
-  print('初始化响应: $response');
+  LoggerUtil.logger.d('初始化响应: $response');
 
   // 发送心跳检测
   final ping = await client.sendPing();
-  print('心跳响应: $ping');
+  LoggerUtil.logger.d('心跳响应: $ping');
 }
 ```
 

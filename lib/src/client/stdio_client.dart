@@ -2,18 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:logging/logging.dart';
-import 'package:mcp_dart/mcp_dart.dart';
+import 'package:mcp_dart/src/message.dart';
+import 'package:mcp_dart/src/method.dart';
 import 'package:mcp_dart/src/process.dart';
 import 'package:mcp_dart/src/server/server_config.dart';
+import 'package:mcp_dart/src/util/logger_util.dart';
 import 'package:synchronized/synchronized.dart';
 
-class McpStdioClient implements McpClient {
-  @override
+class McpStdioClient {
   final McpServerConfig serverConfig;
   late final Process process;
   final _writeLock = Lock();
-  final _pendingRequests = <String, Completer<McpJsonRpcMessage>>{};
+  final _pendingRequests = <String, Completer<McpJsonRpcResponse>>{};
   final List<Function(String)> stdErrCallback;
   final List<Function(String)> stdOutCallback;
 
@@ -29,132 +29,98 @@ class McpStdioClient implements McpClient {
   // 提供公开的 Stream
   Stream<ProcessState> get processStateStream => _processStateController.stream;
 
-  // 修改 dispose 方法
-  @override
   Future<void> dispose() async {
     await _processStateController.close();
     process.kill();
   }
 
-  // 添加初始化方法
-  @override
   Future<void> initialize() async {
-    await _setupProcess();
+    await _setup();
+    await _initialize();
   }
 
-  @override
-  Future<McpJsonRpcMessage> sendInitialize() async {
-    // 第一步：发送初始化请求
-    final initMessage = McpJsonRpcMessage(
-      id: 'init-1',
-      method: 'initialize',
+  Future<void> notify(McpJsonRpcNotification notification) async {
+    LoggerUtil.logger.d('RpcJsonNotification: $notification');
+    await _writeStdin(utf8.encode(jsonEncode(notification.toJson())));
+  }
+
+  Future<McpJsonRpcResponse> request(McpJsonRpcRequest request) async {
+    LoggerUtil.logger.d('RpcJsonRequest: $request');
+    final completer = Completer<McpJsonRpcResponse>();
+    _pendingRequests[request.id] = completer;
+
+    try {
+      await _writeStdin(utf8.encode(jsonEncode(request.toJson())));
+      return await completer.future.timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          _pendingRequests.remove(request.id);
+          throw TimeoutException('Request timed out: ${request.id}');
+        },
+      );
+    } catch (e) {
+      _pendingRequests.remove(request.id);
+      rethrow;
+    }
+  }
+
+  Future<McpJsonRpcResponse> sendPing() async {
+    final message = McpJsonRpcRequest(method: 'ping');
+    return request(message);
+  }
+
+  Future<McpJsonRpcResponse> callTool(
+    String name, {
+    Map<String, dynamic>? arguments,
+  }) async {
+    final message = McpJsonRpcRequest(
+      method: McpMethod.callTool.value,
+      params: {'name': name, 'arguments': arguments},
+    );
+    return request(message);
+  }
+
+  Future<McpJsonRpcResponse> listTools() async {
+    final message = McpJsonRpcRequest(method: McpMethod.listTools.value);
+    return request(message);
+  }
+
+  void _handleMessage(McpJsonRpcResponse response) {
+    if (_pendingRequests.containsKey(response.id)) {
+      final completer = _pendingRequests.remove(response.id);
+      completer?.complete(response);
+    }
+  }
+
+  Future<void> _initialize() async {
+    final initializeRequest = McpJsonRpcRequest(
+      method: McpMethod.initialize.value,
       params: {
         'protocolVersion': '2024-11-05',
         'capabilities': {
           'roots': {'listChanged': true},
           'sampling': {},
         },
-        'clientInfo': {'name': 'DartMCPClient', 'version': '1.0.0'},
+        'clientInfo': {'name': 'McpStdioClient', 'version': '1.0.0'},
       },
     );
-
     try {
-      final initResponse = await sendMessage(initMessage);
-      print('初始化请求响应: $initResponse');
-
-      // 第二步：发送初始化完成通知（不需要等待响应）
-      final notifyMessage = McpJsonRpcMessage(
-        method: 'notifications/initialized', // 移除 notifications/ 前缀
-        params: {}, // 添加空的参数对象
+      await request(initializeRequest);
+      final notification = McpJsonRpcNotification(
+        method: McpMethod.notificationsInitialized.value,
       );
-
-      await write(utf8.encode(jsonEncode(notifyMessage.toJson())));
-      return initResponse;
+      await notify(notification);
     } catch (e) {
-      print(e);
+      LoggerUtil.logger.e(e);
       rethrow;
     }
   }
 
-  @override
-  Future<McpJsonRpcMessage> sendMessage(McpJsonRpcMessage message) async {
-    if (message.id == null) {
-      throw ArgumentError('Message must have an id');
-    }
-
-    final completer = Completer<McpJsonRpcMessage>();
-    _pendingRequests[message.id!] = completer;
-
+  Future<void> _setup() async {
     try {
-      await write(utf8.encode(jsonEncode(message.toJson())));
-      return await completer.future.timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          _pendingRequests.remove(message.id);
-          throw TimeoutException('Request timed out: ${message.id}');
-        },
+      LoggerUtil.logger.d(
+        'Run: ${serverConfig.command} ${serverConfig.args.join(" ")}',
       );
-    } catch (e) {
-      _pendingRequests.remove(message.id);
-      rethrow;
-    }
-  }
-
-  @override
-  Future<McpJsonRpcMessage> sendPing() async {
-    final message = McpJsonRpcMessage(id: 'ping-1', method: 'ping');
-    return sendMessage(message);
-  }
-
-  @override
-  Future<McpJsonRpcMessage> sendToolCall({
-    required String name,
-    required Map<String, dynamic> arguments,
-    String? id,
-  }) async {
-    final message = McpJsonRpcMessage(
-      method: 'tools/call',
-      params: {
-        'name': name,
-        'arguments': arguments,
-        '_meta': {'progressToken': 0},
-      },
-      id: id ?? 'tool-call-${DateTime.now().millisecondsSinceEpoch}',
-    );
-
-    return sendMessage(message);
-  }
-
-  @override
-  Future<McpJsonRpcMessage> sendToolList() async {
-    final message = McpJsonRpcMessage(id: 'tool-list-1', method: 'tools/list');
-    return sendMessage(message);
-  }
-
-  Future<void> write(List<int> data) async {
-    try {
-      await _writeLock.synchronized(() async {
-        final String jsonStr = utf8.decode(data);
-        process.stdin.writeln(utf8.decode(data));
-        await process.stdin.flush();
-        print('写入数据: $jsonStr');
-      });
-    } catch (e) {
-      print('写入数据失败: $e');
-      rethrow;
-    }
-  }
-
-  void _handleMessage(McpJsonRpcMessage message) {
-    if (message.id != null && _pendingRequests.containsKey(message.id)) {
-      final completer = _pendingRequests.remove(message.id);
-      completer?.complete(message);
-    }
-  }
-
-  Future<void> _setupProcess() async {
-    try {
-      print('启动进程: ${serverConfig.command} ${serverConfig.args.join(" ")}');
 
       _processStateController.add(const ProcessState.starting());
 
@@ -164,35 +130,29 @@ class McpStdioClient implements McpClient {
         serverConfig.env,
       );
 
-      print('进程启动状态：PID=${process.pid}');
-
-      // 使用 utf8 解码器
+      const lineSplitter = LineSplitter();
       final stdoutStream = process.stdout
           .transform(utf8.decoder)
-          .transform(const LineSplitter());
+          .transform(lineSplitter);
 
       stdoutStream.listen(
         (String line) {
-          print(line);
           try {
-            for (final callback in stdOutCallback) {
-              callback(line);
-            }
-            final data = jsonDecode(line);
-            final message = McpJsonRpcMessage.fromJson(data);
-            _handleMessage(message);
+            final response = McpJsonRpcResponse.fromJson(jsonDecode(line));
+            LoggerUtil.logger.d('JsonRpcResponse: $response');
+            _handleMessage(response);
           } catch (e, stack) {
-            print('解析服务器输出失败: $e\n$stack');
+            LoggerUtil.logger.e('Unknown error: $e\n$stack');
           }
         },
         onError: (error) {
-          print('stdout 错误: $error');
+          LoggerUtil.logger.e('stdout 错误: $error');
           for (final callback in stdErrCallback) {
             callback(error.toString());
           }
         },
         onDone: () {
-          print('stdout 流已关闭');
+          LoggerUtil.logger.d('stdout 流已关闭');
         },
       );
 
@@ -200,13 +160,13 @@ class McpStdioClient implements McpClient {
           .transform(utf8.decoder)
           .listen(
             (String text) {
-              Logger.root.warning('服务器错误输出: $text');
+              LoggerUtil.logger.e('服务器错误输出: $text');
               for (final callback in stdErrCallback) {
                 callback(text);
               }
             },
             onError: (error) {
-              print('stderr 错误: $error');
+              LoggerUtil.logger.e('stderr 错误: $error');
               for (final callback in stdErrCallback) {
                 callback(error.toString());
               }
@@ -215,14 +175,27 @@ class McpStdioClient implements McpClient {
 
       // 监听进程退出
       process.exitCode.then((code) {
-        print('进程退出，退出码: $code');
+        LoggerUtil.logger.d('进程退出，退出码: $code');
         _processStateController.add(ProcessState.exited(code));
       });
 
       _processStateController.add(const ProcessState.running());
     } catch (e, stack) {
-      print('启动进程失败: $e\n$stack');
+      LoggerUtil.logger.d('启动进程失败: $e\n$stack');
       _processStateController.add(ProcessState.error(e, stack));
+      rethrow;
+    }
+  }
+
+  Future<void> _writeStdin(List<int> data) async {
+    try {
+      await _writeLock.synchronized(() async {
+        final String request = utf8.decode(data);
+        process.stdin.writeln(request);
+        await process.stdin.flush();
+      });
+    } catch (e) {
+      LoggerUtil.logger.d('写入数据失败: $e');
       rethrow;
     }
   }

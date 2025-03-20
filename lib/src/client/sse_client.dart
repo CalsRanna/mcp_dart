@@ -3,15 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:logging/logging.dart';
-import 'package:mcp_dart/mcp_dart.dart';
 import 'package:mcp_dart/src/client/stdio_client.dart';
+import 'package:mcp_dart/src/message.dart';
 import 'package:mcp_dart/src/server/server_config.dart';
+import 'package:mcp_dart/src/util/logger_util.dart';
 import 'package:synchronized/synchronized.dart';
 
-class McpSseClient implements McpClient {
+class McpSseClient {
   final McpServerConfig _serverConfig;
-  final _pendingRequests = <String, Completer<McpJsonRpcMessage>>{};
+  final _pendingRequests = <String, Completer<McpJsonRpcResponse>>{};
   final _processStateController = StreamController<ProcessState>.broadcast();
   StreamSubscription? _sseSubscription;
 
@@ -22,19 +22,16 @@ class McpSseClient implements McpClient {
 
   Stream<ProcessState> get processStateStream => _processStateController.stream;
 
-  @override
   McpServerConfig get serverConfig => _serverConfig;
 
-  @override
   Future<void> dispose() async {
     await _sseSubscription?.cancel();
     await _processStateController.close();
   }
 
-  @override
   Future<void> initialize() async {
     try {
-      print('开始 SSE 连接: ${serverConfig.command}');
+      LoggerUtil.logger.d('开始 SSE 连接: ${serverConfig.command}');
       _processStateController.add(const ProcessState.starting());
 
       final client = HttpClient();
@@ -66,71 +63,40 @@ class McpSseClient implements McpClient {
                       ).replace(path: '').toString();
                   _messageEndpoint =
                       data.startsWith("http") ? data : baseUrl + data;
-                  print('收到消息端点: $_messageEndpoint');
+                  LoggerUtil.logger.d('收到消息端点: $_messageEndpoint');
                   _processStateController.add(const ProcessState.running());
                 } else {
                   try {
                     final jsonData = jsonDecode(data);
-                    final message = McpJsonRpcMessage.fromJson(jsonData);
+                    final message = McpJsonRpcResponse.fromJson(jsonData);
                     _handleMessage(message);
                   } catch (e, stack) {
-                    print('解析服务器消息失败: $e\n$stack');
+                    LoggerUtil.logger.d('解析服务器消息失败: $e\n$stack');
                   }
                 }
               }
             },
             onError: (error) {
-              print('SSE 连接错误: $error');
+              LoggerUtil.logger.d('SSE 连接错误: $error');
               _processStateController.add(
                 ProcessState.error(error, StackTrace.current),
               );
             },
             onDone: () {
-              print('SSE 连接已关闭');
+              LoggerUtil.logger.d('SSE 连接已关闭');
               _processStateController.add(const ProcessState.exited(0));
             },
           );
     } catch (e, stack) {
-      print('SSE 连接失败: $e\n$stack');
+      LoggerUtil.logger.d('SSE 连接失败: $e\n$stack');
       _processStateController.add(ProcessState.error(e, stack));
       rethrow;
     }
   }
 
-  @override
-  Future<McpJsonRpcMessage> sendInitialize() async {
-    final initMessage = McpJsonRpcMessage(
-      id: 'init-1',
-      method: 'initialize',
-      params: {
-        'protocolVersion': '2024-11-05',
-        'capabilities': {
-          'roots': {'listChanged': true},
-          'sampling': {},
-        },
-        'clientInfo': {'name': 'DartMCPClient', 'version': '1.0.0'},
-      },
-    );
-
-    print('初始化请求: ${jsonEncode(initMessage.toString())}');
-
-    final initResponse = await sendMessage(initMessage);
-    print('初始化请求响应: $initResponse');
-
-    final notifyMessage = McpJsonRpcMessage(method: 'initialized', params: {});
-
-    await _sendHttpPost(notifyMessage.toJson());
-    return initResponse;
-  }
-
-  @override
-  Future<McpJsonRpcMessage> sendMessage(McpJsonRpcMessage message) async {
-    if (message.id == null) {
-      throw ArgumentError('消息必须包含 ID');
-    }
-
-    final completer = Completer<McpJsonRpcMessage>();
-    _pendingRequests[message.id!] = completer;
+  Future<McpJsonRpcResponse> request(McpJsonRpcRequest message) async {
+    final completer = Completer<McpJsonRpcResponse>();
+    _pendingRequests[message.id] = completer;
 
     try {
       await _sendHttpPost(message.toJson());
@@ -147,39 +113,62 @@ class McpSseClient implements McpClient {
     }
   }
 
-  @override
-  Future<McpJsonRpcMessage> sendPing() async {
-    final message = McpJsonRpcMessage(id: 'ping-1', method: 'ping');
-    return sendMessage(message);
+  Future<McpJsonRpcResponse> sendInitialize() async {
+    final initMessage = McpJsonRpcRequest(
+      method: 'initialize',
+      params: {
+        'protocolVersion': '2024-11-05',
+        'capabilities': {
+          'roots': {'listChanged': true},
+          'sampling': {},
+        },
+        'clientInfo': {'name': 'DartMCPClient', 'version': '1.0.0'},
+      },
+    );
+
+    LoggerUtil.logger.d('初始化请求: ${jsonEncode(initMessage.toString())}');
+
+    final initResponse = await request(initMessage);
+    LoggerUtil.logger.d('初始化请求响应: $initResponse');
+
+    final notifyMessage = McpJsonRpcNotification(
+      method: 'initialized',
+      params: {},
+    );
+
+    await _sendHttpPost(notifyMessage.toJson());
+    return initResponse;
   }
 
-  @override
-  Future<McpJsonRpcMessage> sendToolCall({
+  Future<McpJsonRpcResponse> sendPing() async {
+    final message = McpJsonRpcRequest(method: 'ping');
+    return request(message);
+  }
+
+  Future<McpJsonRpcResponse> sendToolCall({
     required String name,
     required Map<String, dynamic> arguments,
     String? id,
   }) async {
-    final message = McpJsonRpcMessage(
+    final message = McpJsonRpcRequest(
       method: 'tools/call',
       params: {
         'name': name,
         'arguments': arguments,
         '_meta': {'progressToken': 0},
       },
-      id: id ?? 'tool-call-${DateTime.now().millisecondsSinceEpoch}',
     );
 
-    return sendMessage(message);
+    return request(message);
   }
 
-  @override
-  Future<McpJsonRpcMessage> sendToolList() async {
-    final message = McpJsonRpcMessage(id: 'tool-list-1', method: 'tools/list');
-    return sendMessage(message);
+  Future<McpJsonRpcResponse> sendToolList() async {
+    final message = McpJsonRpcRequest(method: 'tools/list');
+    return request(message);
   }
 
-  void _handleMessage(McpJsonRpcMessage message) {
-    if (message.id != null && _pendingRequests.containsKey(message.id)) {
+  void _handleMessage(McpJsonRpcResponse message) {
+    if (_pendingRequests.containsKey(message.id)) {
       final completer = _pendingRequests.remove(message.id);
       completer?.complete(message);
     }
@@ -198,7 +187,7 @@ class McpSseClient implements McpClient {
           options: Options(headers: {'Content-Type': 'application/json'}),
         );
       } catch (e) {
-        print('发送 HTTP POST 失败: $e');
+        LoggerUtil.logger.d('发送 HTTP POST 失败: $e');
         rethrow;
       }
     });
