@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:process/process.dart';
+
 Future<Map<String, String>> getDefaultEnv() async {
   final Map<String, String> env = Map.of(Platform.environment);
   env['PATH'] = await getDefaultPath();
@@ -86,12 +88,16 @@ Future<Process> startProcess(
   final Map<String, String> env = await getDefaultEnv();
   env.addAll(environment); // Add user provided environment variables
 
-  return Process.start(
+  return LocalProcessManager().start([
     command,
-    args,
-    environment: env,
-    includeParentEnvironment: true,
-    // Windows need it to run properly, no idea why. Keep other platforms as default value (false).
-    runInShell: Platform.isWindows,
-  );
+    ...args,
+  ], environment: environment);
+  // return Process.start(
+  //   command,
+  //   args,
+  //   environment: env,
+  //   includeParentEnvironment: true,
+  //   // Windows need it to run properly, no idea why. Keep other platforms as default value (false).
+  //   runInShell: Platform.isWindows,
+  // );
 }

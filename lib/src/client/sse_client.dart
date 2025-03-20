@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:mcp_dart/src/client/stdio_client.dart';
 import 'package:mcp_dart/src/message.dart';
 import 'package:mcp_dart/src/server/server_config.dart';
 import 'package:mcp_dart/src/util/logger_util.dart';
@@ -12,7 +11,6 @@ import 'package:synchronized/synchronized.dart';
 class McpSseClient {
   final McpServerConfig _serverConfig;
   final _pendingRequests = <String, Completer<McpJsonRpcResponse>>{};
-  final _processStateController = StreamController<ProcessState>.broadcast();
   StreamSubscription? _sseSubscription;
 
   final _writeLock = Lock();
@@ -20,19 +18,15 @@ class McpSseClient {
   McpSseClient({required McpServerConfig serverConfig})
     : _serverConfig = serverConfig;
 
-  Stream<ProcessState> get processStateStream => _processStateController.stream;
-
   McpServerConfig get serverConfig => _serverConfig;
 
   Future<void> dispose() async {
     await _sseSubscription?.cancel();
-    await _processStateController.close();
   }
 
   Future<void> initialize() async {
     try {
       LoggerUtil.logger.d('开始 SSE 连接: ${serverConfig.command}');
-      _processStateController.add(const ProcessState.starting());
 
       final client = HttpClient();
       final request = await client.getUrl(Uri.parse(serverConfig.command));
@@ -64,7 +58,6 @@ class McpSseClient {
                   _messageEndpoint =
                       data.startsWith("http") ? data : baseUrl + data;
                   LoggerUtil.logger.d('收到消息端点: $_messageEndpoint');
-                  _processStateController.add(const ProcessState.running());
                 } else {
                   try {
                     final jsonData = jsonDecode(data);
@@ -78,18 +71,13 @@ class McpSseClient {
             },
             onError: (error) {
               LoggerUtil.logger.d('SSE 连接错误: $error');
-              _processStateController.add(
-                ProcessState.error(error, StackTrace.current),
-              );
             },
             onDone: () {
               LoggerUtil.logger.d('SSE 连接已关闭');
-              _processStateController.add(const ProcessState.exited(0));
             },
           );
     } catch (e, stack) {
       LoggerUtil.logger.d('SSE 连接失败: $e\n$stack');
-      _processStateController.add(ProcessState.error(e, stack));
       rethrow;
     }
   }

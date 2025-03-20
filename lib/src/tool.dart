@@ -1,57 +1,95 @@
-class McpInputSchema {
+class McpToolInputSchema {
   final String type;
-  final Map<String, McpProperty>? properties;
-  final List<String>? required;
+  final Map<String, McpToolProperty>? properties;
 
-  McpInputSchema({required this.type, this.properties, this.required});
+  McpToolInputSchema({required this.type, this.properties});
 
-  factory McpInputSchema.fromJson(Map<String, dynamic> json) {
-    Map<String, McpProperty>? props;
+  factory McpToolInputSchema.fromJson(Map<String, dynamic> json) {
+    Map<String, McpToolProperty>? properties;
     if (json['properties'] != null) {
-      props = Map.fromEntries(
-        (json['properties'] as Map<String, dynamic>).entries.map(
-          (e) => MapEntry(e.key, McpProperty.fromJson(e.value)),
+      var propertiesJson = json['properties'] as Map<String, dynamic>;
+      properties = propertiesJson.map(
+        (key, value) => MapEntry(
+          key,
+          McpToolProperty.fromJson(value as Map<String, dynamic>),
         ),
       );
     }
 
-    return McpInputSchema(
-      type: json['type'],
-      properties: props,
-      required:
-          json['required'] != null ? List<String>.from(json['required']) : null,
-    );
+    return McpToolInputSchema(type: json['type'], properties: properties);
+  }
+
+  Map<String, dynamic> toJson() {
+    return {'type': type, 'properties': properties};
+  }
+
+  @override
+  String toString() {
+    return toJson().toString();
   }
 }
 
-class McpProperty {
+class McpToolProperty {
   final String type;
   final String? description;
 
-  McpProperty({required this.type, this.description});
+  McpToolProperty({required this.type, this.description});
 
-  factory McpProperty.fromJson(Map<String, dynamic> json) {
-    return McpProperty(type: json['type'], description: json['description']);
+  factory McpToolProperty.fromJson(Map<String, dynamic> json) {
+    return McpToolProperty(
+      type: json['type'],
+      description: json['description'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {'type': type, 'description': description};
+  }
+
+  @override
+  String toString() {
+    return toJson().toString();
   }
 }
 
 class McpTool {
   final String name;
   final String description;
-  final McpInputSchema inputSchema;
+  final McpToolInputSchema inputSchema;
+  final List<String> required;
 
   McpTool({
     required this.name,
     required this.description,
     required this.inputSchema,
+    this.required = const <String>[],
   });
 
   factory McpTool.fromJson(Map<String, dynamic> json) {
+    List<String> required = [];
+    if (json['required'] != null) {
+      required = List<String>.from(json['required']);
+    }
     return McpTool(
       name: json['name'],
       description: json['description'],
-      inputSchema: McpInputSchema.fromJson(json['inputSchema']),
+      inputSchema: McpToolInputSchema.fromJson(json['inputSchema']),
+      required: required,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'description': description,
+      'inputSchema': inputSchema.toJson(),
+      'required': required,
+    };
+  }
+
+  @override
+  String toString() {
+    return toJson().toString();
   }
 }
 
