@@ -1,3 +1,5 @@
+library mcp_dart;
+
 export 'src/client/sse_client.dart';
 export 'src/client/stdio_client.dart';
 export 'src/message.dart';
