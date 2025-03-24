@@ -20,7 +20,10 @@ class McpToolInputSchema {
   }
 
   Map<String, dynamic> toJson() {
-    return {'type': type, 'properties': properties};
+    Map<String, dynamic> json = {};
+    json.putIfAbsent('type', () => type);
+    json.putIfAbsent('properties', () => properties ?? {});
+    return json;
   }
 
   @override
@@ -43,7 +46,10 @@ class McpToolProperty {
   }
 
   Map<String, dynamic> toJson() {
-    return {'type': type, 'description': description};
+    Map<String, dynamic> json = {};
+    json.putIfAbsent('type', () => type);
+    json.putIfAbsent('description', () => description ?? '');
+    return json;
   }
 
   @override
